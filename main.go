@@ -12,30 +12,38 @@ import (
 	"time"
 )
 
-var (
-	socks   = flag.String("socks", "127.0.0.1:1080", "socks address")
-	listen  = flag.String("listen", ":8080", "listen address")
-	address = flag.String("address", "", "target address")
-)
+var socks = flag.String("socks", "127.0.0.1:1080", "socks address")
 
 func main() {
 	flag.Parse()
-	if !strings.Contains(*address, ":") {
+
+	var wg sync.WaitGroup
+	args := flag.CommandLine.Args()
+	if len(args) == 0 {
 		goto help
 	}
 
-	createServer()
+	for _, v := range args {
+		if strings.Count(v, ":") == 2 {
+			wg.Add(1)
+			list := strings.Split(v, ":")
+			go createServer(&wg, list[0], strings.Join(list[1:], ":"))
+		}
+	}
+	wg.Wait()
 	os.Exit(0)
 
 help:
 	flag.PrintDefaults()
 }
 
-func createServer() {
+func createServer(wg *sync.WaitGroup, listen, address string) {
+	defer wg.Done()
+
 	var l net.Listener
 	var err error
 
-	l, err = net.Listen("tcp", *listen)
+	l, err = net.Listen("tcp", ":"+listen)
 	if err != nil {
 		fmt.Println("Error listening:", err)
 		os.Exit(1)
@@ -48,11 +56,11 @@ func createServer() {
 			os.Exit(1)
 		}
 		fmt.Printf("<<-- %s\n", conn.RemoteAddr())
-		go handleServerConn(conn)
+		go handleServerConn(conn, address)
 	}
 }
 
-func handleServerConn(localConn net.Conn) {
+func handleServerConn(localConn net.Conn, address string) {
 	defer localConn.Close()
 
 	// 连接远端
@@ -84,7 +92,7 @@ func handleServerConn(localConn net.Conn) {
 
 	// 发送需要连接的地址
 	addrBytes := []byte{05, 01, 00, 01}
-	list := strings.Split(*address, ":")
+	list := strings.Split(address, ":")
 	ipBytes := Int32ToBytes(StringIpToInt(list[0]))
 	mysqlPortNumber, _ := strconv.Atoi(list[1])
 	portBytes := Int16ToBytes(mysqlPortNumber)
